@@ -1,0 +1,175 @@
+// =============================================================
+//  RESONANCE HYBRID TEXTURING — HLSL SHADER LIBRARY v1.3
+//  Project: Resonance Texturing (L-PDS)
+//  Studio: tarhy games
+//  Developer: Taha
+//  Date: 2026
+//  Dosya: Shaders/ResonanceWoodGrain.usf
+// =============================================================
+
+// ── Yardimci: 2D Hash (saf matematik, texture lookup yok) ────
+/*
+ * Copyright (c) 2026 Rüzgar Taha Aslan
+ * Project developed under the fictional brand "Tarhy Interactive"
+ * All rights reserved.
+ * * Developer: Rüzgar Taha Aslan
+ * License: MIT License
+ */
+
+
+float2 R_Hash2(float2 p)
+{
+    p = float2(dot(p, float2(127.1, 311.7)),
+               dot(p, float2(269.5, 183.3)));
+    return frac(sin(p) * 43758.5453123);
+}
+
+// ── Value Noise (Hermite interpolasyonlu) ────────────────────
+
+float R_ValueNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    float2 u = f * f * (3.0 - 2.0 * f); // Hermite smoothstep
+
+    float a = dot(R_Hash2(i + float2(0,0)), f - float2(0,0));
+    float b = dot(R_Hash2(i + float2(1,0)), f - float2(1,0));
+    float c = dot(R_Hash2(i + float2(0,1)), f - float2(0,1));
+    float d = dot(R_Hash2(i + float2(1,1)), f - float2(1,1));
+
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y) * 0.5 + 0.5;
+}
+
+// ── Tahta Damari Ureteci ─────────────────────────────────────
+
+float GenerateWoodGrain(float2 UV, float Scale, float Turb, float Aging)
+{
+    float2 scaledUV = UV * Scale;
+
+    // 4 oktav fraktal turbulans — [unroll] ile branch yok, sabit GPU maliyeti
+    float turb = 0.0;
+    float amp  = Turb;
+    float freq = 1.0;
+
+    [unroll(4)]
+    for (int i = 0; i < 4; i++)
+    {
+        turb += R_ValueNoise(scaledUV * freq) * amp;
+        amp  *= 0.5;
+        freq *= 2.07; // Tam 2x degil -> daha organik lacuna
+    }
+
+    // Konsantrik halkalar + turbulans kayması
+    float dist  = length(scaledUV + float2(turb, turb * 0.7));
+    float rings = sin(dist * 6.2831853 * 3.0) * 0.5 + 0.5;
+
+    // Yaslanma: gürültü ile halkalar kiriliyor
+    float agingNoise = R_ValueNoise(scaledUV * 8.0 + float2(42.0, 13.7));
+    rings = lerp(rings, rings * agingNoise, Aging * 0.6);
+
+    // Ince lif detayi (LOD 0'da fark edilir, mikro seviye)
+    float fiber = R_ValueNoise(scaledUV * 28.0) * 0.12;
+
+    return saturate(rings + fiber);
+}
+
+// ── Metal Cizik Ureteci ──────────────────────────────────────
+
+float GenerateMetalScratches(float2 UV, float Density, float Sharpness, float WearAmt)
+{
+    float scratches = 0.0;
+    float2 scratchUV = float2(UV.x * Density, UV.y * Density * 0.04);
+
+    // 3 farkli aciyla cizik katmani — anizotropik gorunum
+    [unroll(3)]
+    for (int i = 0; i < 3; i++)
+    {
+        float angle = float(i) * 0.52; // ~30 derece aralikla
+        float2 rotUV = float2(
+            scratchUV.x * cos(angle) - scratchUV.y * sin(angle),
+            scratchUV.x * sin(angle) + scratchUV.y * cos(angle)
+        );
+        float line = 1.0 - abs(frac(rotUV.x) - 0.5) * 2.0;
+        // Ust katmanlar daha zayif (1 / (i+1))
+        scratches += pow(saturate(line), Sharpness) * (1.0 / float(i + 1));
+    }
+
+    return saturate(scratches * WearAmt * 2.0);
+}
+
+// ── Toz / Kir Ureteci ────────────────────────────────────────
+
+float GenerateDust(float2 UV, float DirtAccum, float Moisture)
+{
+    // Makro leke + mikro toz katmani
+    float macroClump = R_ValueNoise(UV * 3.0 + float2(7.3, 2.1));
+    float microDust  = R_ValueNoise(UV * 18.0 + float2(1.7, 9.4));
+
+    float dust = macroClump * 0.6 + microDust * 0.4;
+
+    // Nem yuksekse toz yapiskanligini kaybeder, leke olusur
+    float wetEffect = lerp(0.0, 0.3, Moisture);
+    dust = saturate(dust * DirtAccum + wetEffect * macroClump);
+
+    return dust;
+}
+
+// ── ANA ENTRY POINT ──────────────────────────────────────────
+// Master Material'deki Custom node buraya baglanir.
+//
+// Parametreler (Material Parameter olarak tanimlanmali):
+//   UV               : TexCoord[0]
+//   LOD_Blend        : 0=full procedural, 1=base texture only
+//   ComplexityMult   : 0=kapali, 1=tam acik (ESurfaceComplexity'den gelir)
+//   GrainScale       : float
+//   Turbulence       : float
+//   AgingFactor      : float
+//   DirtAccumulation : float
+//   WearAmount       : float
+//   MoistureInfluence: float
+//   Thermal_Throttle : float  (ThermalManager'dan beslenir)
+//   SurfaceType      : 0=tahta, 1=metal, arasi=karisim
+
+float4 ResonanceDetail(
+    float2 UV,
+    float  LOD_Blend,
+    float  ComplexityMult,
+    float  GrainScale,
+    float  Turbulence,
+    float  AgingFactor,
+    float  DirtAccumulation,
+    float  WearAmount,
+    float  MoistureInfluence,
+    float  Thermal_Throttle,
+    float  SurfaceType
+)
+{
+    // Erken cikis: LOD veya thermal tamamen kapatmissa hic hesaplama yapma
+    float thermalKill   = 1.0 - saturate((Thermal_Throttle - 0.7) / 0.3);
+    float effectiveMult = ComplexityMult * (1.0 - LOD_Blend) * thermalKill;
+
+    if (effectiveMult < 0.01)
+    {
+        // Sadece base texture okunur, bu node 0 doner
+        // Material'deki Lerp node base texture'i secer
+        return float4(0, 0, 0, 0);
+    }
+
+    // Detay uretimi
+    float woodDetail  = GenerateWoodGrain(UV, GrainScale, Turbulence, AgingFactor);
+    float metalDetail = GenerateMetalScratches(UV, 12.0, 8.0, WearAmount);
+    float dustDetail  = GenerateDust(UV, DirtAccumulation, MoistureInfluence);
+
+    // Surface tipi karistir
+    float surfaceDetail = lerp(woodDetail, metalDetail, SurfaceType);
+    float finalDetail   = saturate(surfaceDetail + dustDetail * 0.4);
+    finalDetail        *= effectiveMult;
+
+    // R=detay maskesi, G=asinma maskesi, B=kir maskesi, A=combined
+    return float4(
+        finalDetail,
+        WearAmount  * effectiveMult,
+        dustDetail  * effectiveMult,
+        finalDetail
+    );
+}
