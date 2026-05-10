@@ -1,15 +1,15 @@
 // ============================================================
 // Project: Resonance Texturing (L-PDS)
-// Studio: tarhy games
-// Version: 1.1 "Stable Engine"
+// Studio: Tarhy Interactive
+// Version: 1.2 "Stable Engine"
 // Module: Build Configuration
-// Developer: Taha
+// Developer: Rüzgar Taha Aslan
 // ============================================================
 /*
  * Copyright (c) 2026 Rüzgar Taha Aslan
  * Project developed under the fictional brand "Tarhy Interactive"
  * All rights reserved.
- * * Developer: Rüzgar Taha Aslan
+ * Developer: Rüzgar Taha Aslan
  * License: MIT License
  */
 
@@ -20,36 +20,36 @@ public class ResonanceTexturing : ModuleRules
 {
     public ResonanceTexturing(ReadOnlyTargetRules Target) : base(Target)
     {
-        // IWYU (Include What You Use): Derleme süresini kısaltır ve CPU'yu rahatlatır.
+        // IWYU: Reduces compile time and CPU pressure
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        // Projenin ana çekirdek modülleri
+        // Core engine modules
         PublicDependencyModuleNames.AddRange(new string[]
         {
-            "Core", 
-            "CoreUObject", 
+            "Core",
+            "CoreUObject",
             "Engine",
             "InputCore",
             "Projects"
         });
 
-        // Grafik ve Shader motoruyla doğrudan konuşan özel modüller
+        // Rendering and shader modules
         PrivateDependencyModuleNames.AddRange(new string[]
         {
-            "RenderCore",   
-            "RHI",          
-            "Renderer"      
+            "RenderCore",
+            "RHI",
+            "Renderer"
         });
 
-        // Virtual Shader Path: /ResonanceShaders/ üzerinden HLSL erişimi sağlar.
+        // Virtual Shader Path: enables #include "/ResonanceShaders/..." in .usf files
         string PluginShaderDir = Path.Combine(ModuleDirectory, "../../Shaders");
-        
+
         if (Directory.Exists(PluginShaderDir))
         {
             ShaderIncludePathMappings.Add("/ResonanceShaders", PluginShaderDir);
         }
 
-        // Derleme hızlandırma ve hata yakalama ayarları
+        // Build quality settings
         bLegacyPublicIncludePaths = false;
         ShadowVariableWarningLevel = WarningLevel.Error;
     }
